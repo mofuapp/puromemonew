@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply bg-bg font-sans;
+  overscroll-behavior: none;
+}
+
+/* iOS safe area */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* スムーズスクロール */
+.scroll-area {
+  -webkit-overflow-scrolling: touch;
+}
