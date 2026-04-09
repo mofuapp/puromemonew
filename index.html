@@ -1,19 +1,484 @@
 <!DOCTYPE html>
 <html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/icons/icon-192.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="プロメモ" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-    <meta name="theme-color" content="#F9A8A8" />
-    <title>プロメモ</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="プロメモ">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>プロメモ</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --blue:#5B9BD5;--blue-light:#A8C8F0;--blue-pale:#EBF4FF;
+  --text:#1C1C1E;--text-sub:#8E8E93;--bg:#F2F2F7;--card:#fff;
+  --radius:14px;--nav-h:56px;
+  --safe-top:env(safe-area-inset-top,20px);
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Hiragino Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+body{display:flex;flex-direction:column}
+
+.screen{display:none;flex:1;flex-direction:column;overflow:hidden;padding-top:var(--safe-top)}
+.screen.active{display:flex}
+
+/* ヘッダー */
+.header{background:#fff;border-bottom:1px solid #E5E5EA;display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:44px;flex-shrink:0}
+.header h1{font-size:17px;font-weight:600;position:absolute;left:50%;transform:translateX(-50%)}
+.header-btn{background:none;border:none;font-size:15px;color:var(--blue);padding:8px 4px;cursor:pointer;font-family:inherit}
+.header-btn.icon{color:var(--text-sub)}
+.header-btn svg{width:20px;height:20px;display:block}
+
+/* ボトムナビ */
+.bottom-nav{background:#fff;border-top:1px solid #E5E5EA;display:flex;flex-shrink:0;padding-bottom:var(--safe-bottom)}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0;border:none;background:none;font-size:10px;color:var(--text-sub);cursor:pointer;font-family:inherit;transition:color .15s}
+.nav-item.active{color:var(--blue)}
+.nav-item svg{width:24px;height:24px}
+
+/* スクロール */
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+
+/* 一覧 */
+.search-wrap{padding:12px;padding-bottom:8px}
+.search-box{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #E5E5EA;border-radius:10px;padding:8px 12px}
+.search-box svg{width:16px;height:16px;color:var(--text-sub);flex-shrink:0}
+.search-box input{border:none;outline:none;width:100%;font-size:15px;font-family:inherit;background:none;color:var(--text)}
+.search-box input::placeholder{color:var(--text-sub)}
+
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:4px 12px 16px}
+.card{background:var(--card);border-radius:var(--radius);overflow:hidden;position:relative;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card:active{opacity:.85}
+.card-img{aspect-ratio:1;background:#F2F2F7;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.card-img img{width:100%;height:100%;object-fit:cover}
+.card-img .no-img{color:#C7C7CC}
+.card-img .no-img svg{width:36px;height:36px}
+.card-menu-btn{position:absolute;top:6px;right:6px;background:rgba(255,255,255,.85);backdrop-filter:blur(4px);border:none;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:700;color:#555;letter-spacing:-1px;line-height:1}
+.card-menu-btn:active{background:rgba(240,240,240,.9)}
+.dropdown{position:absolute;top:38px;right:6px;background:#fff;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:10;overflow:hidden;min-width:80px}
+.dropdown button{display:block;width:100%;padding:12px 16px;border:none;background:none;font-size:14px;text-align:left;cursor:pointer;font-family:inherit;color:#FF3B30}
+.dropdown button:active{background:#f5f5f5}
+
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:60px 0;color:var(--text-sub)}
+.empty svg{width:48px;height:48px;opacity:.4}
+.empty p{font-size:14px}
+
+/* 追加フォーム */
+.form-body{padding:16px;display:flex;flex-direction:column;gap:20px;padding-bottom:32px}
+.form-group label{display:block;font-size:13px;font-weight:600;color:var(--text-sub);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.form-group label.normal{text-transform:none;letter-spacing:0;font-size:14px;font-weight:500;color:var(--text)}
+
+.img-picker{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid #E5E5EA;border-radius:var(--radius);padding:12px;cursor:pointer;width:100%}
+.img-picker:active{background:#f5f5f5}
+.img-thumb{width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0;background:#F2F2F7;display:flex;align-items:center;justify-content:center}
+.img-thumb svg{width:20px;height:20px;color:var(--text-sub)}
+.img-picker span{font-size:14px;color:var(--text-sub)}
+
+textarea,input[type=text]{width:100%;background:var(--card);border:1px solid #E5E5EA;border-radius:var(--radius);padding:12px;font-size:15px;font-family:inherit;color:var(--text);outline:none;resize:none;transition:border-color .2s}
+textarea:focus,input[type=text]:focus{border-color:var(--blue)}
+
+.submit-btn{background:var(--blue-pale);color:var(--blue);border:none;border-radius:var(--radius);padding:14px;font-size:16px;font-weight:600;font-family:inherit;cursor:pointer;width:auto;align-self:flex-start;transition:all .15s}
+.submit-btn:active{transform:scale(.97)}
+.submit-btn:disabled{opacity:.45;cursor:not-allowed}
+
+/* 詳細 */
+.detail-img{width:100%;background:#F2F2F7;display:flex;align-items:center;justify-content:center}
+.detail-img img{width:100%;max-height:300px;object-fit:contain}
+.detail-body{padding:16px;display:flex;flex-direction:column;gap:16px;padding-bottom:32px}
+.copy-btn{display:block;width:100%;background:var(--blue);color:#fff;border:none;border-radius:var(--radius);padding:14px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .15s}
+.copy-btn:active{opacity:.85;transform:scale(.98)}
+.copy-btn.copied{background:#34C759}
+.prompt-box{background:var(--card);border-radius:var(--radius);padding:12px 14px;font-size:14px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-all}
+.memo-label{font-size:14px;font-weight:600;color:var(--text)}
+.memo-box{background:var(--card);border-radius:var(--radius);padding:12px 14px;font-size:14px;line-height:1.6;color:var(--text);white-space:pre-wrap;word-break:break-all}
+
+/* 編集ヘッダー */
+.edit-header{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:44px;flex-shrink:0;background:#fff;border-bottom:1px solid #E5E5EA}
+
+/* トースト */
+.toast{position:fixed;bottom:calc(var(--nav-h) + var(--safe-bottom) + 16px);left:50%;transform:translateX(-50%) translateY(20px);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:14px;opacity:0;transition:all .3s;pointer-events:none;z-index:100;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<!-- ===== 一覧画面 ===== -->
+<div class="screen active" id="screen-list">
+  <div style="padding-top:var(--safe-top);background:#fff;border-bottom:1px solid #E5E5EA;flex-shrink:0">
+    <div class="header" style="position:relative">
+      <div style="width:40px"></div>
+      <h1>プロメモ</h1>
+      <div style="width:40px"></div>
+    </div>
+  </div>
+  <div class="scroll">
+    <div class="search-wrap">
+      <div class="search-box">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <input type="search" id="search-input" placeholder="検索" oninput="renderList()">
+      </div>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
+  <nav class="bottom-nav">
+    <button class="nav-item active" onclick="goList()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      プロメモ
+    </button>
+    <button class="nav-item" onclick="goAdd()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      追加
+    </button>
+  </nav>
+</div>
+
+<!-- ===== 追加画面 ===== -->
+<div class="screen" id="screen-add">
+  <div style="padding-top:var(--safe-top);background:#fff;border-bottom:1px solid #E5E5EA;flex-shrink:0">
+    <div class="header" style="position:relative">
+      <div style="width:40px"></div>
+      <h1>追加</h1>
+      <div style="width:40px"></div>
+    </div>
+  </div>
+  <div class="scroll">
+    <div class="form-body">
+      <div class="form-group">
+        <label class="normal">画像</label>
+        <button class="img-picker" type="button" onclick="document.getElementById('add-img-input').click()">
+          <div class="img-thumb" id="add-thumb-wrap">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          </div>
+          <span id="add-img-label">画像を選択...</span>
+        </button>
+        <input type="file" id="add-img-input" accept="image/*" style="display:none" onchange="handleAddImage(this)">
+      </div>
+      <div class="form-group">
+        <label class="normal">日本語プロンプト</label>
+        <textarea id="add-jp" rows="3" placeholder="日本語でプロンプトを入力..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="normal">英語プロンプト</label>
+        <textarea id="add-en" rows="3" placeholder="Enter prompt in English..."></textarea>
+      </div>
+      <div class="form-group">
+        <label class="normal">メモ</label>
+        <input type="text" id="add-memo" placeholder="メモを入力...">
+      </div>
+      <button class="submit-btn" id="add-submit-btn" onclick="submitAdd()">提出</button>
+    </div>
+  </div>
+  <nav class="bottom-nav">
+    <button class="nav-item" onclick="goList()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      プロメモ
+    </button>
+    <button class="nav-item active" onclick="goAdd()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      追加
+    </button>
+  </nav>
+</div>
+
+<!-- ===== 詳細画面 ===== -->
+<div class="screen" id="screen-detail">
+  <div style="padding-top:var(--safe-top);background:#fff;border-bottom:1px solid #E5E5EA;flex-shrink:0">
+    <div class="header" style="position:relative">
+      <button class="header-btn" onclick="goList()">＜ 戻る</button>
+      <h1>詳細</h1>
+      <button class="header-btn" onclick="goEdit(currentId)">編集</button>
+    </div>
+  </div>
+  <div class="scroll">
+    <div id="detail-img-wrap" class="detail-img"></div>
+    <div class="detail-body">
+      <div id="detail-jp-section">
+        <button class="copy-btn" id="copy-jp-btn" onclick="copyText('jp')">日本語プロンプトをコピー</button>
+        <div class="prompt-box" id="detail-jp" style="margin-top:8px"></div>
+      </div>
+      <div id="detail-en-section">
+        <button class="copy-btn" id="copy-en-btn" onclick="copyText('en')">英語プロンプトをコピー</button>
+        <div class="prompt-box" id="detail-en" style="margin-top:8px"></div>
+      </div>
+      <div id="detail-memo-section">
+        <div class="memo-label">メモ</div>
+        <div class="memo-box" id="detail-memo" style="margin-top:6px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 編集画面 ===== -->
+<div class="screen" id="screen-edit">
+  <div style="padding-top:var(--safe-top);background:#fff;border-bottom:1px solid #E5E5EA;flex-shrink:0">
+    <div class="edit-header">
+      <button class="header-btn" onclick="cancelEdit()">キャンセル</button>
+      <span style="font-size:17px;font-weight:600">編集</span>
+      <button class="header-btn" onclick="submitEdit()">保存</button>
+    </div>
+  </div>
+  <div class="scroll">
+    <div class="form-body">
+      <div class="form-group">
+        <label class="normal">画像</label>
+        <button class="img-picker" type="button" onclick="document.getElementById('edit-img-input').click()">
+          <div class="img-thumb" id="edit-thumb-wrap">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          </div>
+          <span id="edit-img-label">画像を選択...</span>
+        </button>
+        <input type="file" id="edit-img-input" accept="image/*" style="display:none" onchange="handleEditImage(this)">
+      </div>
+      <div class="form-group">
+        <label class="normal">日本語プロンプト</label>
+        <textarea id="edit-jp" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="normal">英語プロンプト</label>
+        <textarea id="edit-en" rows="3"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="normal">メモ</label>
+        <input type="text" id="edit-memo">
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- トースト -->
+<div class="toast" id="toast"></div>
+
+<script>
+const STORAGE_KEY = 'promemo_v1'
+let prompts = []
+let currentId = null
+let addImageData = null
+let editImageData = null
+
+// データ読み込み
+function load() {
+  try { prompts = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { prompts = [] }
+}
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(prompts))
+}
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2)
+}
+
+// 画面切り替え
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'))
+  document.getElementById('screen-' + id).classList.add('active')
+}
+function goList() { showScreen('list'); renderList() }
+function goAdd() {
+  addImageData = null
+  document.getElementById('add-jp').value = ''
+  document.getElementById('add-en').value = ''
+  document.getElementById('add-memo').value = ''
+  document.getElementById('add-img-label').textContent = '画像を選択...'
+  document.getElementById('add-thumb-wrap').innerHTML = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>'
+  showScreen('add')
+}
+
+// 一覧レンダリング
+function renderList() {
+  const q = document.getElementById('search-input').value.toLowerCase()
+  const filtered = prompts.filter(p =>
+    p.jp.toLowerCase().includes(q) ||
+    p.en.toLowerCase().includes(q) ||
+    (p.memo||'').toLowerCase().includes(q)
+  )
+  const grid = document.getElementById('grid')
+  if (filtered.length === 0) {
+    grid.innerHTML = ''
+    grid.insertAdjacentHTML('afterend', '')
+    // empty表示
+    let empty = document.getElementById('list-empty')
+    if (!empty) {
+      empty = document.createElement('div')
+      empty.id = 'list-empty'
+      empty.className = 'empty'
+      document.querySelector('#screen-list .scroll').appendChild(empty)
+    }
+    empty.style.display = 'flex'
+    empty.innerHTML = '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg><p>' + (q ? '見つかりませんでした' : 'まだ登録がありません') + '</p>'
+  } else {
+    const empty = document.getElementById('list-empty')
+    if (empty) empty.style.display = 'none'
+    grid.innerHTML = filtered.map(p => `
+      <div class="card" id="card-${p.id}">
+        <div class="card-img" onclick="openDetail('${p.id}')">
+          ${p.img ? `<img src="${p.img}" alt="" loading="lazy">` : '<div class="no-img"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>'}
+        </div>
+        <button class="card-menu-btn" onclick="toggleMenu('${p.id}',event)">···</button>
+        <div class="dropdown" id="menu-${p.id}" style="display:none">
+          <button onclick="deletePrompt('${p.id}')">削除</button>
+        </div>
+      </div>
+    `).join('')
+  }
+}
+
+// メニュー
+let openMenuId = null
+function toggleMenu(id, e) {
+  e.stopPropagation()
+  const menu = document.getElementById('menu-' + id)
+  if (openMenuId && openMenuId !== id) {
+    const prev = document.getElementById('menu-' + openMenuId)
+    if (prev) prev.style.display = 'none'
+  }
+  const isOpen = menu.style.display === 'block'
+  menu.style.display = isOpen ? 'none' : 'block'
+  openMenuId = isOpen ? null : id
+}
+document.addEventListener('click', () => {
+  if (openMenuId) {
+    const m = document.getElementById('menu-' + openMenuId)
+    if (m) m.style.display = 'none'
+    openMenuId = null
+  }
+})
+
+// 削除
+function deletePrompt(id) {
+  if (!confirm('削除しますか？')) return
+  prompts = prompts.filter(p => p.id !== id)
+  save()
+  renderList()
+  openMenuId = null
+}
+
+// 画像読み込み（base64）
+function readImage(file) {
+  return new Promise(resolve => {
+    const canvas = document.createElement('canvas')
+    const img = new Image()
+    img.onload = () => {
+      const max = 800
+      let w = img.width, h = img.height
+      if (w > max || h > max) {
+        if (w > h) { h = h * max / w; w = max } else { w = w * max / h; h = max }
+      }
+      canvas.width = w; canvas.height = h
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+      resolve(canvas.toDataURL('image/jpeg', 0.75))
+    }
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+// 追加フォーム
+async function handleAddImage(input) {
+  if (!input.files[0]) return
+  addImageData = await readImage(input.files[0])
+  document.getElementById('add-img-label').textContent = input.files[0].name
+  document.getElementById('add-thumb-wrap').innerHTML = `<img src="${addImageData}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
+}
+async function submitAdd() {
+  const jp = document.getElementById('add-jp').value.trim()
+  const en = document.getElementById('add-en').value.trim()
+  const memo = document.getElementById('add-memo').value.trim()
+  if (!jp && !en) { showToast('プロンプトを入力してください'); return }
+  const p = { id: genId(), jp, en, memo, img: addImageData, createdAt: Date.now() }
+  prompts.unshift(p)
+  save()
+  goList()
+}
+
+// 詳細
+function openDetail(id) {
+  currentId = id
+  const p = prompts.find(x => x.id === id)
+  if (!p) return
+  // 画像
+  const wrap = document.getElementById('detail-img-wrap')
+  wrap.innerHTML = p.img ? `<img src="${p.img}">` : ''
+  wrap.style.display = p.img ? 'flex' : 'none'
+  // 日本語
+  const jpSec = document.getElementById('detail-jp-section')
+  jpSec.style.display = p.jp ? 'block' : 'none'
+  document.getElementById('detail-jp').textContent = p.jp
+  // 英語
+  const enSec = document.getElementById('detail-en-section')
+  enSec.style.display = p.en ? 'block' : 'none'
+  document.getElementById('detail-en').textContent = p.en
+  // メモ
+  const memoSec = document.getElementById('detail-memo-section')
+  memoSec.style.display = p.memo ? 'block' : 'none'
+  document.getElementById('detail-memo').textContent = p.memo
+  // コピーボタンリセット
+  document.getElementById('copy-jp-btn').textContent = '日本語プロンプトをコピー'
+  document.getElementById('copy-jp-btn').classList.remove('copied')
+  document.getElementById('copy-en-btn').textContent = '英語プロンプトをコピー'
+  document.getElementById('copy-en-btn').classList.remove('copied')
+  showScreen('detail')
+}
+
+// コピー
+function copyText(type) {
+  const p = prompts.find(x => x.id === currentId)
+  if (!p) return
+  const text = type === 'jp' ? p.jp : p.en
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-' + type + '-btn')
+    btn.textContent = 'コピーしました！'
+    btn.classList.add('copied')
+    setTimeout(() => {
+      btn.textContent = type === 'jp' ? '日本語プロンプトをコピー' : '英語プロンプトをコピー'
+      btn.classList.remove('copied')
+    }, 2000)
+  })
+}
+
+// 編集
+function goEdit(id) {
+  const p = prompts.find(x => x.id === id)
+  if (!p) return
+  editImageData = p.img || null
+  document.getElementById('edit-jp').value = p.jp
+  document.getElementById('edit-en').value = p.en
+  document.getElementById('edit-memo').value = p.memo || ''
+  document.getElementById('edit-img-label').textContent = p.img ? '画像を変更...' : '画像を選択...'
+  document.getElementById('edit-thumb-wrap').innerHTML = p.img
+    ? `<img src="${p.img}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
+    : '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>'
+  showScreen('edit')
+}
+async function handleEditImage(input) {
+  if (!input.files[0]) return
+  editImageData = await readImage(input.files[0])
+  document.getElementById('edit-img-label').textContent = input.files[0].name
+  document.getElementById('edit-thumb-wrap').innerHTML = `<img src="${editImageData}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
+}
+function submitEdit() {
+  const jp = document.getElementById('edit-jp').value.trim()
+  const en = document.getElementById('edit-en').value.trim()
+  if (!jp && !en) { showToast('プロンプトを入力してください'); return }
+  const p = prompts.find(x => x.id === currentId)
+  if (!p) return
+  p.jp = jp; p.en = en; p.memo = document.getElementById('edit-memo').value.trim()
+  p.img = editImageData
+  save()
+  openDetail(currentId)
+}
+function cancelEdit() { openDetail(currentId) }
+
+// トースト
+function showToast(msg) {
+  const t = document.getElementById('toast')
+  t.textContent = msg
+  t.classList.add('show')
+  setTimeout(() => t.classList.remove('show'), 2500)
+}
+
+// 初期化
+load()
+renderList()
+</script>
+</body>
 </html>
