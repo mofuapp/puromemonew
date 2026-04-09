@@ -97,6 +97,23 @@ textarea:focus,input[type=text]:focus{border-color:var(--blue)}
 /* 編集ヘッダー */
 .edit-header{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:44px;flex-shrink:0;background:#fff;border-bottom:1px solid #E5E5EA}
 
+/* 設定画面 */
+.settings-list{padding:16px;display:flex;flex-direction:column;gap:12px}
+.settings-section-title{font-size:12px;font-weight:600;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px;padding:0 4px;margin-top:4px}
+.settings-card{background:var(--card);border-radius:var(--radius);overflow:hidden}
+.settings-row{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #F2F2F7;cursor:pointer;gap:12px}
+.settings-row:last-child{border-bottom:none}
+.settings-row:active{background:#f5f5f5}
+.settings-row-left{display:flex;align-items:center;gap:12px}
+.settings-icon{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.settings-icon svg{width:16px;height:16px;color:#fff}
+.settings-row-text{font-size:15px;color:var(--text)}
+.settings-row-sub{font-size:12px;color:var(--text-sub);margin-top:1px}
+.settings-chevron{color:#C7C7CC}
+.settings-chevron svg{width:16px;height:16px}
+.settings-danger{color:#FF3B30 !important}
+.settings-count{font-size:13px;color:var(--text-sub);background:#F2F2F7;border-radius:10px;padding:2px 8px}
+
 /* トースト */
 .toast{position:fixed;bottom:calc(var(--nav-h) + var(--safe-bottom) + 16px);left:50%;transform:translateX(-50%) translateY(20px);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:14px;opacity:0;transition:all .3s;pointer-events:none;z-index:100;white-space:nowrap}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -130,6 +147,10 @@ textarea:focus,input[type=text]:focus{border-color:var(--blue)}
     <button class="nav-item" onclick="goAdd()">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
       追加
+    </button>
+    <button class="nav-item" onclick="goSettings()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+      設定
     </button>
   </nav>
 </div>
@@ -178,6 +199,10 @@ textarea:focus,input[type=text]:focus{border-color:var(--blue)}
     <button class="nav-item active" onclick="goAdd()">
       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
       追加
+    </button>
+    <button class="nav-item" onclick="goSettings()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+      設定
     </button>
   </nav>
 </div>
@@ -245,6 +270,85 @@ textarea:focus,input[type=text]:focus{border-color:var(--blue)}
       </div>
     </div>
   </div>
+</div>
+
+<!-- ===== 設定画面 ===== -->
+<div class="screen" id="screen-settings">
+  <div style="padding-top:var(--safe-top);background:#fff;border-bottom:1px solid #E5E5EA;flex-shrink:0">
+    <div class="header" style="position:relative">
+      <div style="width:40px"></div>
+      <h1>設定</h1>
+      <div style="width:40px"></div>
+    </div>
+  </div>
+  <div class="scroll">
+    <div class="settings-list">
+      <div class="settings-section-title">データ管理</div>
+      <div class="settings-card">
+        <div class="settings-row" onclick="exportData()">
+          <div class="settings-row-left">
+            <div class="settings-icon" style="background:#34C759">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            </div>
+            <div>
+              <div class="settings-row-text">エクスポート</div>
+              <div class="settings-row-sub">データをJSONファイルで保存</div>
+            </div>
+          </div>
+          <div class="settings-chevron"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></div>
+        </div>
+        <div class="settings-row" onclick="document.getElementById('import-input').click()">
+          <div class="settings-row-left">
+            <div class="settings-icon" style="background:#5B9BD5">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+            </div>
+            <div>
+              <div class="settings-row-text">インポート</div>
+              <div class="settings-row-sub">JSONファイルからデータを読み込み</div>
+            </div>
+          </div>
+          <div class="settings-chevron"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></div>
+        </div>
+        <input type="file" id="import-input" accept=".json" style="display:none" onchange="importData(this)">
+      </div>
+
+      <div class="settings-section-title" style="margin-top:8px">登録データ</div>
+      <div class="settings-card">
+        <div class="settings-row" style="cursor:default">
+          <div class="settings-row-left">
+            <div class="settings-icon" style="background:#FF9500">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </div>
+            <div class="settings-row-text">プロンプト数</div>
+          </div>
+          <span class="settings-count" id="settings-count">0件</span>
+        </div>
+        <div class="settings-row" onclick="clearAll()">
+          <div class="settings-row-left">
+            <div class="settings-icon" style="background:#FF3B30">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </div>
+            <div class="settings-row-text settings-danger">全データを削除</div>
+          </div>
+          <div class="settings-chevron"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <nav class="bottom-nav">
+    <button class="nav-item" onclick="goList()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      プロメモ
+    </button>
+    <button class="nav-item" onclick="goAdd()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      追加
+    </button>
+    <button class="nav-item active" onclick="goSettings()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3"/></svg>
+      設定
+    </button>
+  </nav>
 </div>
 
 <!-- トースト -->
@@ -474,6 +578,59 @@ function showToast(msg) {
   t.textContent = msg
   t.classList.add('show')
   setTimeout(() => t.classList.remove('show'), 2500)
+}
+
+// 設定画面
+function goSettings() {
+  document.getElementById('settings-count').textContent = prompts.length + '件'
+  showScreen('settings')
+}
+
+// エクスポート
+function exportData() {
+  const json = JSON.stringify(prompts, null, 2)
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const date = new Date().toISOString().slice(0, 10)
+  a.href = url; a.download = 'promemo_' + date + '.json'
+  a.click()
+  URL.revokeObjectURL(url)
+  showToast('エクスポートしました')
+}
+
+// インポート
+function importData(input) {
+  const file = input.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result)
+      if (!Array.isArray(data)) throw new Error()
+      const valid = data.filter(p => p.id && typeof p.jp === 'string')
+      if (valid.length === 0) { showToast('有効なデータがありません'); return }
+      if (!confirm(`${valid.length}件をインポートします。既存データに追加しますか？`)) return
+      // IDが重複しているものはスキップ
+      const existingIds = new Set(prompts.map(p => p.id))
+      const newItems = valid.filter(p => !existingIds.has(p.id))
+      prompts = [...newItems, ...prompts]
+      save()
+      document.getElementById('settings-count').textContent = prompts.length + '件'
+      showToast(newItems.length + '件インポートしました')
+    } catch { showToast('ファイルの読み込みに失敗しました') }
+    input.value = ''
+  }
+  reader.readAsText(file)
+}
+
+// 全削除
+function clearAll() {
+  if (!confirm('全データを削除しますか？\nこの操作は取り消せません。')) return
+  prompts = []
+  save()
+  document.getElementById('settings-count').textContent = '0件'
+  showToast('全データを削除しました')
 }
 
 // 初期化
