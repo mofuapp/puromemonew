@@ -312,6 +312,22 @@ textarea:focus,input[type=text]:focus{border-color:var(--blue)}
         <input type="file" id="import-input" accept=".json" style="display:none" onchange="importData(this)">
       </div>
 
+      <div class="settings-section-title" style="margin-top:8px">トラブル時</div>
+      <div class="settings-card">
+        <div class="settings-row" onclick="repairStorage()">
+          <div class="settings-row-left">
+            <div class="settings-icon" style="background:#8E8E93">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            </div>
+            <div>
+              <div class="settings-row-text">保存を修復</div>
+              <div class="settings-row-sub">固まったとき・提出できないとき</div>
+            </div>
+          </div>
+          <div class="settings-chevron"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></div>
+        </div>
+      </div>
+
       <div class="settings-section-title" style="margin-top:8px">登録データ</div>
       <div class="settings-card">
         <div class="settings-row" style="cursor:default">
@@ -355,21 +371,111 @@ textarea:focus,input[type=text]:focus{border-color:var(--blue)}
 <div class="toast" id="toast"></div>
 
 <script>
-const STORAGE_KEY = 'promemo_v1'
+const LEGACY_KEY = 'promemo_v1'
+const DB_NAME = 'promemo_db'
+const DB_VER = 1
 let prompts = []
 let currentId = null
 let addImageData = null
+let addThumbData = null
 let editImageData = null
+let editThumbData = null
+let isSaving = false
 
-// データ読み込み
-function load() {
-  try { prompts = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { prompts = [] }
+// ===== IndexedDB（localStorageより容量が大きい） =====
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VER)
+    req.onerror = () => reject(req.error)
+    req.onsuccess = () => resolve(req.result)
+    req.onupgradeneeded = e => {
+      const db = e.target.result
+      if (!db.objectStoreNames.contains('prompts')) {
+        db.createObjectStore('prompts', { keyPath: 'id' })
+      }
+    }
+  })
 }
-function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(prompts))
+async function dbGetAll() {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('prompts', 'readonly')
+    const req = tx.objectStore('prompts').getAll()
+    req.onsuccess = () => resolve(req.result || [])
+    req.onerror = () => reject(req.error)
+  })
+}
+async function dbPut(item) {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('prompts', 'readwrite')
+    tx.objectStore('prompts').put(item)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+async function dbDelete(id) {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('prompts', 'readwrite')
+    tx.objectStore('prompts').delete(id)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+async function dbClear() {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('prompts', 'readwrite')
+    tx.objectStore('prompts').clear()
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+async function migrateFromLegacy() {
+  const raw = localStorage.getItem(LEGACY_KEY)
+  if (!raw) return false
+  try {
+    const data = JSON.parse(raw)
+    if (!Array.isArray(data)) { localStorage.removeItem(LEGACY_KEY); return false }
+    for (const p of data) await dbPut(p)
+    localStorage.removeItem(LEGACY_KEY)
+    return true
+  } catch {
+    return false
+  }
+}
+async function repairStorage() {
+  if (!confirm('保存の修復を行います。\n古い形式のデータを新しい保存先に移行し、容量不足を解消します。よろしいですか？')) return
+  showToast('修復中…')
+  const migrated = await migrateFromLegacy()
+  await loadAll()
+  renderList()
+  document.getElementById('settings-count').textContent = prompts.length + '件'
+  if (migrated) showToast('修復完了！提出できるようになりました')
+  else if (prompts.length > 0) showToast('修復完了（' + prompts.length + '件）')
+  else showToast('データがありません。エクスポート済みなら問題ありません')
+}
+async function loadAll() {
+  try {
+    let data = await dbGetAll()
+    if (data.length === 0) {
+      const raw = localStorage.getItem(LEGACY_KEY)
+      // 2MB超は起動時に固まりやすいので手動修復に任せる
+      if (raw && raw.length < 2 * 1024 * 1024) await migrateFromLegacy()
+      data = await dbGetAll()
+    }
+    prompts = data.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+  } catch {
+    prompts = []
+    showToast('データの読み込みに失敗しました')
+  }
 }
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2)
+}
+function gridImg(p) {
+  return p.thumb || p.img || ''
 }
 
 // 画面切り替え
@@ -380,6 +486,7 @@ function showScreen(id) {
 function goList() { showScreen('list'); renderList() }
 function goAdd() {
   addImageData = null
+  addThumbData = null
   document.getElementById('add-jp').value = ''
   document.getElementById('add-en').value = ''
   document.getElementById('add-memo').value = ''
@@ -416,7 +523,7 @@ function renderList() {
     grid.innerHTML = filtered.map(p => `
       <div class="card" id="card-${p.id}">
         <div class="card-img" onclick="openDetail('${p.id}')">
-          ${p.img ? `<img src="${p.img}" alt="" loading="lazy">` : '<div class="no-img"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>'}
+          ${gridImg(p) ? `<img src="${gridImg(p)}" alt="" loading="lazy">` : '<div class="no-img"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>'}
         </div>
         <button class="card-menu-btn" onclick="toggleMenu('${p.id}',event)">···</button>
         <div class="dropdown" id="menu-${p.id}" style="display:none">
@@ -449,49 +556,92 @@ document.addEventListener('click', () => {
 })
 
 // 削除
-function deletePrompt(id) {
+async function deletePrompt(id) {
   if (!confirm('削除しますか？')) return
-  prompts = prompts.filter(p => p.id !== id)
-  save()
-  renderList()
+  try {
+    await dbDelete(id)
+    prompts = prompts.filter(p => p.id !== id)
+    renderList()
+  } catch {
+    showToast('削除に失敗しました')
+  }
   openMenuId = null
 }
 
-// 画像読み込み（base64）
+// 画像読み込み（詳細用＋一覧用サムネイル）
+function resizeImage(img, maxSize, quality) {
+  let w = img.width, h = img.height
+  if (w > maxSize || h > maxSize) {
+    if (w > h) { h = Math.round(h * maxSize / w); w = maxSize }
+    else { w = Math.round(w * maxSize / h); h = maxSize }
+  }
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+  return canvas.toDataURL('image/jpeg', quality)
+}
 function readImage(file) {
-  return new Promise(resolve => {
-    const canvas = document.createElement('canvas')
+  return new Promise((resolve, reject) => {
     const img = new Image()
+    const url = URL.createObjectURL(file)
     img.onload = () => {
-      const max = 800
-      let w = img.width, h = img.height
-      if (w > max || h > max) {
-        if (w > h) { h = h * max / w; w = max } else { w = w * max / h; h = max }
-      }
-      canvas.width = w; canvas.height = h
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h)
-      resolve(canvas.toDataURL('image/jpeg', 0.75))
+      URL.revokeObjectURL(url)
+      resolve({
+        img: resizeImage(img, 640, 0.68),
+        thumb: resizeImage(img, 240, 0.6)
+      })
     }
-    img.src = URL.createObjectURL(file)
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('画像の読み込みに失敗しました'))
+    }
+    img.src = url
   })
 }
 
 // 追加フォーム
 async function handleAddImage(input) {
   if (!input.files[0]) return
-  addImageData = await readImage(input.files[0])
-  document.getElementById('add-img-label').textContent = input.files[0].name
-  document.getElementById('add-thumb-wrap').innerHTML = `<img src="${addImageData}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
+  try {
+    const data = await readImage(input.files[0])
+    addImageData = data.img
+    addThumbData = data.thumb
+    document.getElementById('add-img-label').textContent = input.files[0].name
+    document.getElementById('add-thumb-wrap').innerHTML = `<img src="${addThumbData}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
+  } catch {
+    showToast('画像の読み込みに失敗しました')
+  }
 }
 async function submitAdd() {
+  if (isSaving) return
   const jp = document.getElementById('add-jp').value.trim()
   const en = document.getElementById('add-en').value.trim()
   const memo = document.getElementById('add-memo').value.trim()
   if (!jp && !en) { showToast('プロンプトを入力してください'); return }
-  const p = { id: genId(), jp, en, memo, img: addImageData, createdAt: Date.now() }
-  prompts.unshift(p)
-  save()
-  goList()
+
+  const btn = document.getElementById('add-submit-btn')
+  isSaving = true
+  btn.disabled = true
+  btn.textContent = '保存中...'
+
+  const p = { id: genId(), jp, en, memo, img: addImageData, thumb: addThumbData, createdAt: Date.now() }
+  try {
+    await dbPut(p)
+    prompts.unshift(p)
+    addImageData = null
+    addThumbData = null
+    goList()
+  } catch (e) {
+    const msg = e && e.name === 'QuotaExceededError'
+      ? '保存容量がいっぱいです。古いデータを削除するか、設定からエクスポート後に整理してください'
+      : '保存に失敗しました。もう一度お試しください'
+    showToast(msg)
+  } finally {
+    isSaving = false
+    btn.disabled = false
+    btn.textContent = '提出'
+  }
 }
 
 // 詳細
@@ -544,6 +694,7 @@ function goEdit(id) {
   const p = prompts.find(x => x.id === id)
   if (!p) return
   editImageData = p.img || null
+  editThumbData = p.thumb || p.img || null
   document.getElementById('edit-jp').value = p.jp
   document.getElementById('edit-en').value = p.en
   document.getElementById('edit-memo').value = p.memo || ''
@@ -555,20 +706,37 @@ function goEdit(id) {
 }
 async function handleEditImage(input) {
   if (!input.files[0]) return
-  editImageData = await readImage(input.files[0])
-  document.getElementById('edit-img-label').textContent = input.files[0].name
-  document.getElementById('edit-thumb-wrap').innerHTML = `<img src="${editImageData}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
+  try {
+    const data = await readImage(input.files[0])
+    editImageData = data.img
+    editThumbData = data.thumb
+    document.getElementById('edit-img-label').textContent = input.files[0].name
+    document.getElementById('edit-thumb-wrap').innerHTML = `<img src="${editThumbData}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
+  } catch {
+    showToast('画像の読み込みに失敗しました')
+  }
 }
-function submitEdit() {
+async function submitEdit() {
+  if (isSaving) return
   const jp = document.getElementById('edit-jp').value.trim()
   const en = document.getElementById('edit-en').value.trim()
   if (!jp && !en) { showToast('プロンプトを入力してください'); return }
   const p = prompts.find(x => x.id === currentId)
   if (!p) return
-  p.jp = jp; p.en = en; p.memo = document.getElementById('edit-memo').value.trim()
+  isSaving = true
+  p.jp = jp
+  p.en = en
+  p.memo = document.getElementById('edit-memo').value.trim()
   p.img = editImageData
-  save()
-  openDetail(currentId)
+  p.thumb = editThumbData
+  try {
+    await dbPut(p)
+    openDetail(currentId)
+  } catch {
+    showToast('保存に失敗しました')
+  } finally {
+    isSaving = false
+  }
 }
 function cancelEdit() { openDetail(currentId) }
 
@@ -604,18 +772,17 @@ function importData(input) {
   const file = input.files[0]
   if (!file) return
   const reader = new FileReader()
-  reader.onload = e => {
+  reader.onload = async e => {
     try {
       const data = JSON.parse(e.target.result)
       if (!Array.isArray(data)) throw new Error()
       const valid = data.filter(p => p.id && typeof p.jp === 'string')
       if (valid.length === 0) { showToast('有効なデータがありません'); return }
       if (!confirm(`${valid.length}件をインポートします。既存データに追加しますか？`)) return
-      // IDが重複しているものはスキップ
       const existingIds = new Set(prompts.map(p => p.id))
       const newItems = valid.filter(p => !existingIds.has(p.id))
+      for (const p of newItems) await dbPut(p)
       prompts = [...newItems, ...prompts]
-      save()
       document.getElementById('settings-count').textContent = prompts.length + '件'
       showToast(newItems.length + '件インポートしました')
     } catch { showToast('ファイルの読み込みに失敗しました') }
@@ -625,17 +792,26 @@ function importData(input) {
 }
 
 // 全削除
-function clearAll() {
+async function clearAll() {
   if (!confirm('全データを削除しますか？\nこの操作は取り消せません。')) return
-  prompts = []
-  save()
-  document.getElementById('settings-count').textContent = '0件'
-  showToast('全データを削除しました')
+  try {
+    await dbClear()
+    localStorage.removeItem(LEGACY_KEY)
+    prompts = []
+    document.getElementById('settings-count').textContent = '0件'
+    renderList()
+    showToast('全データを削除しました')
+  } catch {
+    showToast('削除に失敗しました')
+  }
 }
 
 // 初期化
-load()
-renderList()
+async function initApp() {
+  await loadAll()
+  renderList()
+}
+initApp()
 </script>
 </body>
 </html>
