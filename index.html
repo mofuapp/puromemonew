@@ -475,7 +475,8 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2)
 }
 function gridImg(p) {
-  return p.thumb || p.img || ''
+  // 一覧は詳細用画像を優先（古い低画質サムネ対策）
+  return p.img || p.thumb || ''
 }
 
 // 画面切り替え
@@ -588,8 +589,8 @@ function readImage(file) {
     img.onload = () => {
       URL.revokeObjectURL(url)
       resolve({
-        img: resizeImage(img, 640, 0.68),
-        thumb: resizeImage(img, 240, 0.6)
+        img: resizeImage(img, 1280, 0.88),
+        thumb: resizeImage(img, 512, 0.82)
       })
     }
     img.onerror = () => {
