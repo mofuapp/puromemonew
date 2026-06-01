@@ -52,7 +52,8 @@ body{display:flex;flex-direction:column}
 .card{background:var(--card);border-radius:var(--radius);overflow:hidden;position:relative;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .card:active{opacity:.85}
 .card-img{aspect-ratio:1;background:#F2F2F7;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.card-img img{width:100%;height:100%;object-fit:cover}
+.card-img img{width:100%;height:100%;object-fit:cover;-webkit-transform:translateZ(0)}
+.detail-img img{max-height:70vh}
 .card-img .no-img{color:#C7C7CC}
 .card-img .no-img svg{width:36px;height:36px}
 .card-menu-btn{position:absolute;top:6px;right:6px;background:rgba(255,255,255,.85);backdrop-filter:blur(4px);border:none;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:700;color:#555;letter-spacing:-1px;line-height:1}
@@ -373,16 +374,17 @@ textarea:focus,input[type=text]:focus{border-color:var(--blue)}
 <script>
 const LEGACY_KEY = 'promemo_v1'
 const DB_NAME = 'promemo_db'
-const DB_VER = 1
+const DB_VER = 2
 let prompts = []
 let currentId = null
-let addImageData = null
-let addThumbData = null
-let editImageData = null
-let editThumbData = null
+let pendingAddBlob = null
+let pendingAddPreview = null
+let pendingEditBlob = null
+let pendingEditPreview = null
 let isSaving = false
+const urlCache = new Map()
 
-// ===== IndexedDB（localStorageより容量が大きい） =====
+// ===== IndexedDB =====
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VER)
@@ -393,8 +395,97 @@ function openDB() {
       if (!db.objectStoreNames.contains('prompts')) {
         db.createObjectStore('prompts', { keyPath: 'id' })
       }
+      if (!db.objectStoreNames.contains('images')) {
+        db.createObjectStore('images', { keyPath: 'id' })
+      }
     }
   })
+}
+function revokeUrlCache() {
+  urlCache.forEach(url => URL.revokeObjectURL(url))
+  urlCache.clear()
+}
+function dataUrlToBlob(dataUrl) {
+  const [header, b64] = dataUrl.split(',')
+  const mime = (header.match(/:(.*?);/) || [])[1] || 'image/jpeg'
+  const binary = atob(b64)
+  const arr = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i)
+  return new Blob([arr], { type: mime })
+}
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+async function dbGetImage(id) {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('images', 'readonly')
+    const req = tx.objectStore('images').get(id)
+    req.onsuccess = () => resolve(req.result ? req.result.blob : null)
+    req.onerror = () => reject(req.error)
+  })
+}
+async function dbPutImage(id, blob) {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('images', 'readwrite')
+    tx.objectStore('images').put({ id, blob })
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+async function dbDeleteImage(id) {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('images', 'readwrite')
+    tx.objectStore('images').delete(id)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+async function dbClearImages() {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('images', 'readwrite')
+    tx.objectStore('images').clear()
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+}
+async function getImageUrl(id) {
+  if (urlCache.has(id)) return urlCache.get(id)
+  const blob = await dbGetImage(id)
+  if (blob) {
+    const url = URL.createObjectURL(blob)
+    urlCache.set(id, url)
+    return url
+  }
+  const p = prompts.find(x => x.id === id)
+  if (p && p.img) return p.img
+  return null
+}
+function hasImage(p) {
+  return !!(p.hasImage || p.img || p.thumb)
+}
+async function migrateEmbeddedImages() {
+  for (const p of prompts) {
+    const src = p.img || p.thumb
+    if (src && typeof src === 'string' && src.startsWith('data:')) {
+      await dbPutImage(p.id, dataUrlToBlob(src))
+      delete p.img
+      delete p.thumb
+      p.hasImage = true
+      await dbPut(p)
+    } else if (!p.hasImage && await dbGetImage(p.id)) {
+      p.hasImage = true
+      await dbPut(p)
+    }
+  }
 }
 async function dbGetAll() {
   const db = await openDB()
@@ -424,6 +515,7 @@ async function dbDelete(id) {
   })
 }
 async function dbClear() {
+  await dbClearImages()
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction('prompts', 'readwrite')
@@ -466,6 +558,7 @@ async function loadAll() {
       data = await dbGetAll()
     }
     prompts = data.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
+    await migrateEmbeddedImages()
   } catch {
     prompts = []
     showToast('データの読み込みに失敗しました')
@@ -473,10 +566,6 @@ async function loadAll() {
 }
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2)
-}
-function gridImg(p) {
-  // 一覧は詳細用画像を優先（古い低画質サムネ対策）
-  return p.img || p.thumb || ''
 }
 
 // 画面切り替え
@@ -486,8 +575,9 @@ function showScreen(id) {
 }
 function goList() { showScreen('list'); renderList() }
 function goAdd() {
-  addImageData = null
-  addThumbData = null
+  if (pendingAddPreview) URL.revokeObjectURL(pendingAddPreview)
+  pendingAddBlob = null
+  pendingAddPreview = null
   document.getElementById('add-jp').value = ''
   document.getElementById('add-en').value = ''
   document.getElementById('add-memo').value = ''
@@ -521,10 +611,11 @@ function renderList() {
   } else {
     const empty = document.getElementById('list-empty')
     if (empty) empty.style.display = 'none'
+    revokeUrlCache()
     grid.innerHTML = filtered.map(p => `
       <div class="card" id="card-${p.id}">
         <div class="card-img" onclick="openDetail('${p.id}')">
-          ${gridImg(p) ? `<img src="${gridImg(p)}" alt="" loading="lazy">` : '<div class="no-img"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>'}
+          ${hasImage(p) ? `<img id="list-img-${p.id}" alt="" loading="lazy" decoding="async">` : '<div class="no-img"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>'}
         </div>
         <button class="card-menu-btn" onclick="toggleMenu('${p.id}',event)">···</button>
         <div class="dropdown" id="menu-${p.id}" style="display:none">
@@ -532,7 +623,13 @@ function renderList() {
         </div>
       </div>
     `).join('')
+    filtered.forEach(p => { if (hasImage(p)) attachListImage(p.id) })
   }
+}
+async function attachListImage(id) {
+  const url = await getImageUrl(id)
+  const img = document.getElementById('list-img-' + id)
+  if (img && url) img.src = url
 }
 
 // メニュー
@@ -560,6 +657,11 @@ document.addEventListener('click', () => {
 async function deletePrompt(id) {
   if (!confirm('削除しますか？')) return
   try {
+    if (urlCache.has(id)) {
+      URL.revokeObjectURL(urlCache.get(id))
+      urlCache.delete(id)
+    }
+    await dbDeleteImage(id)
     await dbDelete(id)
     prompts = prompts.filter(p => p.id !== id)
     renderList()
@@ -569,9 +671,21 @@ async function deletePrompt(id) {
   openMenuId = null
 }
 
-// 画像読み込み（詳細用＋一覧用サムネイル）
-function resizeImage(img, maxSize, quality) {
-  let w = img.width, h = img.height
+// 画像をBlobで保存（小さい画像は元ファイルのまま＝画質維持）
+function getImageDimensions(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve({ w: img.naturalWidth, h: img.naturalHeight })
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error()) }
+    img.src = url
+  })
+}
+function compressToBlob(img, maxSize, quality) {
+  let w = img.naturalWidth, h = img.naturalHeight
   if (w > maxSize || h > maxSize) {
     if (w > h) { h = Math.round(h * maxSize / w); w = maxSize }
     else { w = Math.round(w * maxSize / h); h = maxSize }
@@ -579,24 +693,30 @@ function resizeImage(img, maxSize, quality) {
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h
-  canvas.getContext('2d').drawImage(img, 0, 0, w, h)
-  return canvas.toDataURL('image/jpeg', quality)
+  const ctx = canvas.getContext('2d')
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(img, 0, 0, w, h)
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality))
 }
-function readImage(file) {
+async function processFileToBlob(file) {
+  try {
+    const { w, h } = await getImageDimensions(file)
+    if (file.size <= 2.5 * 1024 * 1024 && w <= 2400 && h <= 2400) {
+      return file
+    }
+  } catch { /* 圧縮へ */ }
   return new Promise((resolve, reject) => {
-    const img = new Image()
     const url = URL.createObjectURL(file)
-    img.onload = () => {
+    const img = new Image()
+    img.onload = async () => {
       URL.revokeObjectURL(url)
-      resolve({
-        img: resizeImage(img, 1280, 0.88),
-        thumb: resizeImage(img, 512, 0.82)
-      })
+      try {
+        const blob = await compressToBlob(img, 2400, 0.92)
+        resolve(blob || file)
+      } catch { reject(new Error()) }
     }
-    img.onerror = () => {
-      URL.revokeObjectURL(url)
-      reject(new Error('画像の読み込みに失敗しました'))
-    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error()) }
     img.src = url
   })
 }
@@ -605,11 +725,11 @@ function readImage(file) {
 async function handleAddImage(input) {
   if (!input.files[0]) return
   try {
-    const data = await readImage(input.files[0])
-    addImageData = data.img
-    addThumbData = data.thumb
+    if (pendingAddPreview) URL.revokeObjectURL(pendingAddPreview)
+    pendingAddBlob = await processFileToBlob(input.files[0])
+    pendingAddPreview = URL.createObjectURL(pendingAddBlob)
     document.getElementById('add-img-label').textContent = input.files[0].name
-    document.getElementById('add-thumb-wrap').innerHTML = `<img src="${addThumbData}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
+    document.getElementById('add-thumb-wrap').innerHTML = `<img src="${pendingAddPreview}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
   } catch {
     showToast('画像の読み込みに失敗しました')
   }
@@ -626,12 +746,15 @@ async function submitAdd() {
   btn.disabled = true
   btn.textContent = '保存中...'
 
-  const p = { id: genId(), jp, en, memo, img: addImageData, thumb: addThumbData, createdAt: Date.now() }
+  const id = genId()
+  const p = { id, jp, en, memo, hasImage: !!pendingAddBlob, createdAt: Date.now() }
   try {
     await dbPut(p)
+    if (pendingAddBlob) await dbPutImage(id, pendingAddBlob)
     prompts.unshift(p)
-    addImageData = null
-    addThumbData = null
+    if (pendingAddPreview) URL.revokeObjectURL(pendingAddPreview)
+    pendingAddBlob = null
+    pendingAddPreview = null
     goList()
   } catch (e) {
     const msg = e && e.name === 'QuotaExceededError'
@@ -646,14 +769,14 @@ async function submitAdd() {
 }
 
 // 詳細
-function openDetail(id) {
+async function openDetail(id) {
   currentId = id
   const p = prompts.find(x => x.id === id)
   if (!p) return
-  // 画像
   const wrap = document.getElementById('detail-img-wrap')
-  wrap.innerHTML = p.img ? `<img src="${p.img}">` : ''
-  wrap.style.display = p.img ? 'flex' : 'none'
+  const url = hasImage(p) ? await getImageUrl(id) : null
+  wrap.innerHTML = url ? `<img src="${url}">` : ''
+  wrap.style.display = url ? 'flex' : 'none'
   // 日本語
   const jpSec = document.getElementById('detail-jp-section')
   jpSec.style.display = p.jp ? 'block' : 'none'
@@ -691,28 +814,30 @@ function copyText(type) {
 }
 
 // 編集
-function goEdit(id) {
+async function goEdit(id) {
   const p = prompts.find(x => x.id === id)
   if (!p) return
-  editImageData = p.img || null
-  editThumbData = p.thumb || p.img || null
+  pendingEditBlob = null
+  if (pendingEditPreview) URL.revokeObjectURL(pendingEditPreview)
+  pendingEditPreview = null
   document.getElementById('edit-jp').value = p.jp
   document.getElementById('edit-en').value = p.en
   document.getElementById('edit-memo').value = p.memo || ''
-  document.getElementById('edit-img-label').textContent = p.img ? '画像を変更...' : '画像を選択...'
-  document.getElementById('edit-thumb-wrap').innerHTML = p.img
-    ? `<img src="${p.img}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
+  document.getElementById('edit-img-label').textContent = hasImage(p) ? '画像を変更...' : '画像を選択...'
+  const previewUrl = hasImage(p) ? await getImageUrl(id) : null
+  document.getElementById('edit-thumb-wrap').innerHTML = previewUrl
+    ? `<img src="${previewUrl}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
     : '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>'
   showScreen('edit')
 }
 async function handleEditImage(input) {
   if (!input.files[0]) return
   try {
-    const data = await readImage(input.files[0])
-    editImageData = data.img
-    editThumbData = data.thumb
+    if (pendingEditPreview && pendingEditBlob) URL.revokeObjectURL(pendingEditPreview)
+    pendingEditBlob = await processFileToBlob(input.files[0])
+    pendingEditPreview = URL.createObjectURL(pendingEditBlob)
     document.getElementById('edit-img-label').textContent = input.files[0].name
-    document.getElementById('edit-thumb-wrap').innerHTML = `<img src="${editThumbData}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
+    document.getElementById('edit-thumb-wrap').innerHTML = `<img src="${pendingEditPreview}" style="width:44px;height:44px;object-fit:cover;border-radius:8px">`
   } catch {
     showToast('画像の読み込みに失敗しました')
   }
@@ -728,10 +853,21 @@ async function submitEdit() {
   p.jp = jp
   p.en = en
   p.memo = document.getElementById('edit-memo').value.trim()
-  p.img = editImageData
-  p.thumb = editThumbData
   try {
+    if (pendingEditBlob) {
+      await dbPutImage(p.id, pendingEditBlob)
+      p.hasImage = true
+      delete p.img
+      delete p.thumb
+      if (urlCache.has(p.id)) {
+        URL.revokeObjectURL(urlCache.get(p.id))
+        urlCache.delete(p.id)
+      }
+    }
     await dbPut(p)
+    if (pendingEditPreview && pendingEditBlob) URL.revokeObjectURL(pendingEditPreview)
+    pendingEditBlob = null
+    pendingEditPreview = null
     openDetail(currentId)
   } catch {
     showToast('保存に失敗しました')
@@ -756,8 +892,17 @@ function goSettings() {
 }
 
 // エクスポート
-function exportData() {
-  const json = JSON.stringify(prompts, null, 2)
+async function exportData() {
+  showToast('エクスポート準備中…')
+  const items = []
+  for (const p of prompts) {
+    const item = { id: p.id, jp: p.jp, en: p.en, memo: p.memo || '', createdAt: p.createdAt }
+    const blob = await dbGetImage(p.id)
+    if (blob) item.img = await blobToDataUrl(blob)
+    else if (p.img) item.img = p.img
+    items.push(item)
+  }
+  const json = JSON.stringify(items, null, 2)
   const blob = new Blob([json], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -782,7 +927,16 @@ function importData(input) {
       if (!confirm(`${valid.length}件をインポートします。既存データに追加しますか？`)) return
       const existingIds = new Set(prompts.map(p => p.id))
       const newItems = valid.filter(p => !existingIds.has(p.id))
-      for (const p of newItems) await dbPut(p)
+      for (const p of newItems) {
+        const img = p.img
+        delete p.img
+        delete p.thumb
+        if (img && typeof img === 'string') {
+          p.hasImage = true
+          await dbPutImage(p.id, dataUrlToBlob(img))
+        }
+        await dbPut(p)
+      }
       prompts = [...newItems, ...prompts]
       document.getElementById('settings-count').textContent = prompts.length + '件'
       showToast(newItems.length + '件インポートしました')
@@ -796,6 +950,7 @@ function importData(input) {
 async function clearAll() {
   if (!confirm('全データを削除しますか？\nこの操作は取り消せません。')) return
   try {
+    revokeUrlCache()
     await dbClear()
     localStorage.removeItem(LEGACY_KEY)
     prompts = []
